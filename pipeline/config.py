@@ -73,6 +73,9 @@ class Settings(BaseSettings):
 
     prometheus_enabled: bool = False
 
+    quality_max_invalid_ratio: float = 0.20
+    quality_max_null_ratio: float = 0.10
+
     taxi_trips_url: str = (
         "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet"
     )
@@ -89,6 +92,10 @@ class Settings(BaseSettings):
         return self.data_dir / "raw"
 
     @property
+    def validated_dir(self) -> Path:
+        return self.data_dir / "validated"
+
+    @property
     def staging_dir(self) -> Path:
         return self.data_dir / "staging"
 
@@ -101,7 +108,13 @@ class Settings(BaseSettings):
         return self.data_dir / "marts"
 
     def ensure_dirs(self) -> None:
-        for d in (self.raw_dir, self.staging_dir, self.curated_dir, self.marts_dir):
+        for d in (
+            self.raw_dir,
+            self.validated_dir,
+            self.staging_dir,
+            self.curated_dir,
+            self.marts_dir,
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
 

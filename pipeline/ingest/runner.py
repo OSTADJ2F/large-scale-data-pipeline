@@ -7,6 +7,7 @@ ingestion manifest, and makes re-runs idempotent.
 from __future__ import annotations
 
 import tempfile
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -128,7 +129,7 @@ class Ingestor:
         for y, m in iter_months(start, end):
             partition = f"{y}-{m:02d}"
             first = date(y, m, 1)
-            last = date(y, m, 28 if m == 2 else 30)
+            last = date(y, m, monthrange(y, m)[1])
             params = {
                 "latitude": self.settings.weather_latitude,
                 "longitude": self.settings.weather_longitude,
