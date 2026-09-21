@@ -1,215 +1,198 @@
+<div align="center">
+
 # Large-Scale Data Pipeline
 
-A production-style **transportation analytics platform** that ingests public NYC
-taxi-trip data, enriches it with historical weather, builds analytical data
-marts, and serves them through a dashboard and query API.
+**A production-style transportation analytics platform** that ingests **15M+ NYC taxi trips**, enriches them with historical weather, models them with dbt, and serves interactive dashboards and a query API.
 
-It answers questions such as:
+Batch ingestion · Incremental processing · Data quality · Distributed execution · Data warehousing · Orchestration · Observability · CI/CD
 
-- Which zones have the highest demand?
-- How does weather affect trip duration?
-- What are the busiest hours?
-- Which routes generate the most revenue?
-- How has demand changed over time?
-- How many invalid or suspicious records were detected?
+[![CI](https://github.com/OSTADJ2F/large-scale-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/OSTADJ2F/large-scale-data-pipeline/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10-blue)
+![dbt](https://img.shields.io/badge/dbt-duckdb-orange)
+![Apache Airflow](https://img.shields.io/badge/Airflow-2.10-017CEE)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Code style](https://img.shields.io/badge/code%20style-ruff-000000)
+
+<img src="docs/images/dashboard.png" width="900" alt="Taxi analytics dashboard" />
+
+</div>
 
 ---
+
+## Results at a glance
+
+| Metric | Value |
+| ------ | ----- |
+| Raw records processed | **15.2M** across 4 monthly source files |
+| Enriched fact rows | **13,990,007** |
+| Analytical marts | 4 (daily, hourly, route, weather-impact) |
+| Automated tests | **67** (unit, integration, data-quality, end-to-end) |
+| dbt data tests | **21** (uniqueness, relationships, accepted values) |
+| Single-month validation | 3.48M rows in **2.6s** (Polars) |
+| Mart query latency | **~1 ms** (DuckDB) / sub-second (PostgreSQL) |
+
+## Highlights
+
+- **Idempotent, immutable ingestion** — checksummed raw layer, re-runs never duplicate or overwrite source data.
+- **Real data-quality enforcement** — Pandera schemas + custom rules route records into `valid` / `invalid` / `quarantined`, and the pipeline *fails* when quality thresholds are breached.
+- **Incremental + backfill processing** — month-partitioned checkpoints stored in a `pipeline_runs` table; failed partitions retry safely, completed ones are skipped.
+- **dbt data marts** — versioned, tested, documented SQL that rebuilds deterministically from Parquet.
+- **Orchestrated** — an Airflow DAG (`check_source → ingest → validate → normalize → enrich → build → test → metrics → load`) with retries and backfill support.
+- **Observability built in** — structured JSON logs, Prometheus metrics, alert rules, and a live pipeline-status panel in the dashboard.
+- **Scales** — columnar partition pruning locally, plus a parity PySpark path for distributed execution.
+- **Reproducible** — Docker Compose for infrastructure, GitHub Actions CI, and one-command start/stop/smoke scripts.
 
 ## Architecture
 
 ```text
-                    NYC TLC (Parquet)        Open-Meteo (JSON)
-                          │                        │
-                          ▼                        ▼
-                ┌─────────────────────────────────────┐
-                │        Raw ingestion layer          │   idempotent, checksummed
-                └─────────────────────────────────────┘
+                    NYC TLC (Parquet)          Open-Meteo (JSON)
+                          │                          │
+                          ▼                          ▼
+              ┌──────────────────────────────────────────────┐
+              │  Raw ingestion  (idempotent, checksummed)     │
+              └──────────────────────────────────────────────┘
                           │
                           ▼
-                ┌─────────────────────────────────────┐
-                │   Immutable object storage (MinIO)  │   data/raw (append-only)
-                └─────────────────────────────────────┘
+              ┌──────────────────────────────────────────────┐
+              │  Immutable object storage  (MinIO / local)    │
+              └──────────────────────────────────────────────┘
                           │
                           ▼
-                ┌─────────────────────────────────────┐
-                │  Validation & normalization         │   Pandera + custom rules
-                │  valid / invalid / quarantined      │
-                └─────────────────────────────────────┘
+              ┌──────────────────────────────────────────────┐
+              │  Validation  →  valid | invalid | quarantined │
+              └──────────────────────────────────────────────┘
                           │
                           ▼
-                ┌─────────────────────────────────────┐
-                │   Cleaned Parquet (staging)         │   partitioned by pickup_date
-                └─────────────────────────────────────┘
+              ┌──────────────────────────────────────────────┐
+              │  Normalization  →  date-partitioned Parquet   │
+              └──────────────────────────────────────────────┘
                           │
                           ▼
-                ┌─────────────────────────────────────┐
-                │   Weather enrichment                │   nearest-hour join
-                └─────────────────────────────────────┘
+              ┌──────────────────────────────────────────────┐
+              │  Weather enrichment  (nearest-hour join)      │
+              └──────────────────────────────────────────────┘
                           │
                           ▼
-                ┌─────────────────────────────────────┐
-                │   Analytical marts (dbt-duckdb)     │   daily/hourly/route/weather
-                └─────────────────────────────────────┘
+              ┌──────────────────────────────────────────────┐
+              │  Analytical marts  (dbt-duckdb)               │
+              └──────────────────────────────────────────────┘
                           │
                           ▼
-                ┌─────────────────────────────────────┐
-                │   Query DB (PostgreSQL)             │   serving marts
-                └─────────────────────────────────────┘
+              ┌──────────────────────────────────────────────┐
+              │  Serving database  (PostgreSQL)               │
+              └──────────────────────────────────────────────┘
                           │
                  ┌────────┴────────┐
                  ▼                 ▼
-        Dashboard (Streamlit)   API (FastAPI)
+        Streamlit dashboard     FastAPI query API
 ```
 
-**Storage layout** (gitignored):
+**Storage layers** (never mixing raw and derived data):
 
 ```text
 data/
-├── raw/          # immutable source files (taxi, weather, zones)
-├── validated/    # valid/ invalid/ quarantined outputs + reports
-├── staging/      # normalized, date-partitioned Parquet
+├── raw/          # immutable source files
+├── validated/    # valid | invalid | quarantined + JSON reports
+├── staging/      # normalized, pickup_date-partitioned Parquet
 ├── curated/      # weather-enriched Parquet
-└── marts/        # analytical aggregates (also in DuckDB + PostgreSQL)
+└── marts/        # analytical aggregates (DuckDB + PostgreSQL)
 ```
 
-## Technology choices
+## Screenshots
 
-| Layer             | Technology                          | Why |
-| ----------------- | ----------------------------------- | --- |
-| Processing        | Python 3.10, Polars                 | Fast columnar, in-memory, lazy |
-| Distributed       | PySpark (optional)                  | Same transform logic at scale |
-| Orchestration     | Apache Airflow (Docker)             | DAGs, retries, backfills, history |
-| Storage           | MinIO (S3-compatible) / local FS    | Immutable object store |
-| Warehousing       | DuckDB (analytics)                  | Zero-config columnar analytics |
-| Serving           | PostgreSQL                          | Reliable analytical serving |
-| Transformations   | dbt-duckdb                          | Versioned, tested, documented SQL |
-| Data quality      | Pandera + custom rules + dbt tests  | Schema + rule + referential checks |
-| Dashboard / API   | Streamlit / FastAPI                 | Interactive + programmatic access |
-| Observability     | structlog + Prometheus + Grafana    | Logs, metrics, alerts |
+**Query API** — FastAPI with interactive OpenAPI docs.
+
+<img src="docs/images/api-docs.png" width="900" alt="FastAPI Swagger UI" />
+
+> The dashboard screenshot is shown at the top of this README.
+
+## Tech stack
+
+| Layer | Technology |
+| ----- | ---------- |
+| Processing | Python 3.10, **Polars**, PySpark (optional) |
+| Orchestration | **Apache Airflow** (Docker) |
+| Storage | **MinIO** (S3-compatible) / local filesystem |
+| Warehousing | **DuckDB**, **PostgreSQL** |
+| Transformations | **dbt-duckdb** |
+| Data quality | **Pandera** + custom rules + dbt tests |
+| Dashboard / API | **Streamlit** / **FastAPI** |
+| Observability | structlog, **Prometheus**, Grafana |
+| Infra / CI | Docker Compose, GitHub Actions |
 
 ## Quick start
 
-Prerequisites: Python 3.10, Docker Desktop (running), `git`.
+**Prerequisites:** Python 3.10, Docker Desktop (running), `git`.
 
 ```powershell
-# 1. Create a virtualenv and install dependencies
-.\make.ps1 setup            # Linux/macOS: make setup
+git clone https://github.com/OSTADJ2F/large-scale-data-pipeline.git
+cd large-scale-data-pipeline
 
-# 2. Configure environment
+.\make.ps1 setup                                  # create venv + install deps
 Copy-Item .env.example .env
-
-# 3. Start infrastructure (PostgreSQL + MinIO)
-docker compose up -d
-
-# 4. Verify configuration
-.\make.ps1 doctor
+docker compose up -d                              # PostgreSQL + MinIO
+.\make.ps1 doctor                                 # verify configuration
 ```
 
-## Run the app
-
-After the quick start, run the pipeline for a small date range to populate the
-serving database (skip this if data is already loaded), then start everything:
+**Populate data** (one month is plenty to explore):
 
 ```powershell
-# Populate data (one month is enough to explore the dashboard)
 python -m pipeline run --start-date 2025-01-01 --end-date 2025-01-31
 ```
 
-Then, with a single command:
+**Run the app** with a single command (starts API + dashboard, then smoke-tests):
 
 ```powershell
 .\make.ps1 serve
 ```
 
-`serve` starts PostgreSQL/MinIO (if needed), the FastAPI query API, and the
-Streamlit dashboard, waits until both are ready, and runs smoke checks.
+| Service | URL |
+| ------- | --- |
+| Dashboard | http://localhost:8501 |
+| API docs | http://localhost:8000/docs |
+| API metrics | http://localhost:8000/metrics |
 
-Open in a browser:
-
-| Service        | URL                             |
-| -------------- | ------------------------------- |
-| Dashboard      | http://localhost:8501           |
-| API docs       | http://localhost:8000/docs      |
-| API metrics    | http://localhost:8000/metrics   |
-
-Manage the running services:
+Manage services:
 
 ```powershell
-.\make.ps1 status    # show what is running
+.\make.ps1 status    # what is running
 .\make.ps1 smoke     # verify API, dashboard, and database
-.\make.ps1 stop      # stop the API and dashboard
-```
-
-Equivalent cross-platform commands (any OS):
-
-```bash
-python -m scripts.dev start     # start + smoke-test
-python -m scripts.dev status
-python -m scripts.dev smoke
-python -m scripts.dev stop
-```
-
-Service logs are written to `logs/api.log` and `logs/dashboard.log`.
-
-### Manual start (two terminals)
-
-```powershell
-# terminal 1
-.venv\Scripts\python -m uvicorn api.app:app --reload
-# terminal 2
-.venv\Scripts\python -m streamlit run dashboard/app.py
+.\make.ps1 stop      # stop API + dashboard
 ```
 
 ## Pipeline commands
 
 ```powershell
-# Ingest raw data for a date range (idempotent)
-python -m pipeline ingest --start-date 2025-01-01 --end-date 2025-01-31
-
-# Validate and split valid / invalid / quarantined
+python -m pipeline ingest   --start-date 2025-01-01 --end-date 2025-01-31
 python -m pipeline validate --start-date 2025-01-01 --end-date 2025-01-31
-
-# Normalize into partitioned staging Parquet
 python -m pipeline normalize --start-date 2025-01-01 --end-date 2025-01-31
+python -m pipeline enrich   --start-date 2025-01-01 --end-date 2025-01-31
+python -m pipeline quality                      # dbt run + tests
+python -m pipeline load                         # marts -> PostgreSQL
 
-# Enrich with weather
-python -m pipeline enrich --start-date 2025-01-01 --end-date 2025-01-31
-
-# Build marts (dbt) + run data tests
-python -m pipeline quality
-
-# Load marts into PostgreSQL
-python -m pipeline load
-
-# Run the full pipeline for a single date or range (incremental, idempotent)
-python -m pipeline run --date 2025-01-15
+python -m pipeline run --date 2025-01-15         # incremental (idempotent)
 python -m pipeline run --start-date 2025-01-01 --end-date 2025-04-30
-
-# Backfill (force reprocess) a historical range
 python -m pipeline backfill --start-date 2024-01-01 --end-date 2024-12-31
 
-# Operational checks
-python -m pipeline metrics     # Prometheus text metrics
-python -m pipeline alerts      # run alert rules
+python -m pipeline metrics                       # Prometheus text format
+python -m pipeline alerts                        # operational alert checks
 ```
 
-Equivalent `make` / `make.ps1` targets: `setup`, `test`, `lint`, `format`,
-`doctor`, `ingest`, `transform`, `pipeline`, `dashboard`, `api`, `up`, `down`.
+> `make` / `make.ps1` targets mirror these: `setup`, `test`, `lint`, `format`, `doctor`, `ingest`, `transform`, `pipeline`, `dashboard`, `api`, `serve`, `stop`, `status`, `smoke`, `up`, `down`.
 
 ## Data sources
 
-| Source   | Format | Description |
-| -------- | ------ | ----------- |
-| `taxi_trips` | Parquet | NYC TLC Yellow Taxi trips (monthly files) |
-| `taxi_zones` | CSV    | Taxi-zone id -> borough/zone lookup |
-| `weather`    | JSON   | Open-Meteo historical hourly weather for NYC |
+| Source | Format | Description |
+| ------ | ------ | ----------- |
+| `taxi_trips` | Parquet | NYC TLC Yellow Taxi trips (monthly) |
+| `taxi_zones` | CSV | Taxi-zone id → borough/zone lookup |
+| `weather` | JSON | Open-Meteo historical hourly weather (NYC) |
 
-Sources are configured in [`config/sources.yaml`](config/sources.yaml) and can be
-overridden via environment variables.
+Configured in [`config/sources.yaml`](config/sources.yaml); overridable via environment variables.
 
 ## Schema
 
-The canonical trip schema (staging/curated) includes:
+Canonical trip schema (staging/curated):
 
 | Column | Type | Description |
 | ------ | ---- | ----------- |
@@ -220,126 +203,104 @@ The canonical trip schema (staging/curated) includes:
 | `trip_distance` | float | miles |
 | `trip_duration_seconds` / `average_speed` | float | derived |
 | `fare_amount` / `tip_amount` / `total_charge` | float | currency (USD) |
-| `payment_type` | string | `credit_card`, `cash`, ... |
+| `payment_type` | string | `credit_card`, `cash`, … |
 | `is_airport_trip` | bool | derived |
 | `temperature` / `precipitation` / `wind_speed` / `weather_condition` | various | weather |
 
-Time zone: TLC and Open-Meteo timestamps are naive **America/New_York** local
-time. Weather is joined by **nearest hour** (floor-to-hour on pickup time).
+**Time zone:** TLC and Open-Meteo timestamps are naive **America/New_York** local time; weather is joined by **nearest hour** (floor-to-hour on pickup time), which handles DST transitions correctly.
+
+**Analytical marts:** `daily_demand`, `hourly_demand`, `route_performance`, `weather_impact` (documented and tested in [`dbt/models/marts`](dbt/models/marts)).
 
 ## Data quality
 
 - **Pandera schema** validates column presence and types.
-- **Correctness rules** flag: dropoff before pickup, negative distance/fare/tip,
-  invalid passenger counts, invalid location IDs, invalid payment types.
-- **Quarantine** captures critical nulls, exact duplicates, and outliers.
-- **Thresholds** (`QUALITY_MAX_INVALID_RATIO`, `QUALITY_MAX_NULL_RATIO`) fail the
-  pipeline when exceeded.
-- **dbt tests** (21) enforce uniqueness, referential integrity, accepted values,
-  and not-null constraints on every mart.
+- **Correctness rules:** dropoff before pickup, negative distance/fare/tip, invalid passenger counts, invalid location IDs, invalid payment types.
+- **Quarantine:** critical nulls, exact duplicates, and physically implausible outliers.
+- **Thresholds** (`QUALITY_MAX_INVALID_RATIO`, `QUALITY_MAX_NULL_RATIO`) fail the pipeline when exceeded.
+- **dbt tests (21)** enforce uniqueness, referential integrity, accepted values, and non-null constraints on every mart.
 
 Validation reports are saved as JSON artifacts under `data/validated/trips/reports/`.
 
-### Findings on real data (Jan–Apr 2025)
-
-The pipeline surfaced real data-quality issues in the TLC feed:
-
-- **`payment_type=0`** (up to 806k rows/month) — a non-standard code correlated
-  with null `passenger_count`; treated as a valid `not_recorded` value rather
-  than a correctness failure.
-- **Negative fares** (~5% of rows) — genuine TLC adjustment/refund records,
-  flagged as invalid and excluded from revenue marts.
-- **Soft-null `passenger_count`** — defaulted to 0 during normalization.
-- **Late-arriving trips** — monthly files contain a few trips from adjacent
-  dates (e.g. `pickup_date=2024-12-31` inside the January file).
+**Findings on real data (Jan–Apr 2025):** the pipeline surfaced non-standard `payment_type=0` (up to 806k rows/month, correlated with null `passenger_count`), negative adjustment fares (~5%), and late-arriving trips from adjacent months — each handled and documented rather than silently dropped.
 
 ## Performance
 
-Benchmarked on a single month (3.48M rows, 56 MB Parquet) on a local machine:
+Benchmarked on one month (3.48M rows, 56 MB Parquet):
 
-| Stage            | Time  |
-| ---------------- | ----- |
+| Stage | Time |
+| ----- | ---- |
 | Read raw Parquet | 0.06s |
-| Validate         | 2.59s |
-| Normalize        | 0.03s |
-| Enrich (join)    | 0.05s |
-| Top-zones query  | 0.001s |
+| Validate | 2.59s |
+| Normalize | 0.03s |
+| Enrich (join) | 0.05s |
+| Top-zones query | ~0.001s |
 
 - Peak memory ~3.3 GB (in-memory columnar processing).
 - Ingestion downloads multiple files in parallel (`WORKERS`).
-- End-to-end run processed **15.2M raw rows** across 4 months (Jan–Apr 2025).
-
-**Scaling**: for datasets larger than available memory, the same transformation
-logic is available as a PySpark job (`scripts/spark_job.py`, `pipeline/spark/`)
-that can run on any Spark cluster; results are consistent with the local path.
+- End-to-end: **15.2M rows** across 4 months.
+- **Scaling:** for datasets beyond memory, the same logic is available as a PySpark job (`scripts/spark_job.py`, `pipeline/spark/`) for any Spark cluster.
 
 ## Observability
 
-- Structured JSON logs via `structlog`.
-- Prometheus metrics at `GET /metrics` (rows ingested/rejected/transformed, run
-  duration, job failures, storage, query latency, last-success timestamp).
-- Alert rules for pipeline failure, no data, high failure rate, and slow runs
-  (`monitoring/alert_rules.yml`).
-- Optional Grafana dashboard via `docker compose --profile monitoring up -d`.
+- Structured JSON logs via **structlog**.
+- **Prometheus metrics** at `GET /metrics`: rows ingested/rejected/transformed, run duration, job failures, storage bytes, query latency, last-success timestamp.
+- Alert rules (`monitoring/alert_rules.yml`): pipeline failure, no data, high failure rate, slow runs.
+- Optional Grafana dashboard: `docker compose --profile monitoring up -d`.
+
+## Testing & CI
+
+```powershell
+.\make.ps1 test        # 67 tests
+.\make.ps1 lint
+```
+
+Coverage includes unit tests (parsers, normalizers, rules, config), integration tests (object storage, validation, weather joins), data-quality invariants, and an **end-to-end test** over a small fixture dataset with no external downloads. GitHub Actions runs **lint + tests + `dbt parse`** on every push.
+
+## Project structure
+
+```text
+pipeline/      Python package (ingest, validate, normalize, enrich, incremental, spark, observability)
+dbt/           dbt-duckdb models, tests, and schema docs
+airflow/       Airflow DAG + Docker image
+api/           FastAPI query API
+dashboard/     Streamlit dashboard
+monitoring/    Prometheus + Grafana config
+scripts/       dev helper (serve/stop/smoke), benchmarks, Spark job
+config/        data-source manifest and settings
+tests/         unit, integration, data-quality, and end-to-end tests
+```
 
 ## Deployment
 
-### Local services
-
 ```powershell
-docker compose up -d                              # Postgres + MinIO
-docker compose --profile monitoring up -d         # + Prometheus + Grafana
-```
+docker compose up -d                                        # PostgreSQL + MinIO
+docker compose --profile monitoring up -d                   # + Prometheus + Grafana
+docker compose -f airflow/docker-compose.yaml up -d         # Airflow (localhost:8080)
 
-### Airflow
-
-```powershell
-docker compose -f airflow/docker-compose.yaml up -d
-# UI at http://localhost:8080 (admin / admin)
-```
-
-The DAG (`airflow/dags/taxi_pipeline.py`) schedules daily and supports backfills
-via `--conf '{"start_date":"...","end_date":"..."}'`.
-
-### Production containers
-
-```powershell
-docker build -t taxi-analytics .                  # API + dashboard + CLI image
+docker build -t taxi-analytics .                            # API + dashboard + CLI image
 docker build -f airflow/Dockerfile -t taxi-analytics-airflow .
 ```
 
-### Backups
+**Backups:**
 
 ```powershell
-# PostgreSQL
 docker exec pipeline-postgres pg_dump -U taxi taxi > backup.sql
-
-# Data (raw/staging/curated/marts + metadata)
 tar -czf data-backup.tar.gz data/
 ```
 
-## Testing
+## Design decisions
 
-```powershell
-.\make.ps1 test        # 65 unit + integration + end-to-end tests
-.\make.ps1 lint
-.\make.ps1 format
-```
+- **Naive local timestamps** are kept consistent between trips and weather rather than converting to UTC, avoiding DST ambiguity.
+- **DuckDB for transforms, PostgreSQL for serving** — fast local analytics without giving up a reliable serving store.
+- **Month-level partitions** match the source file granularity; late-arriving data is captured when its month is (re)processed.
+- **Marts are `table` materializations** — deterministic and fully rebuildable; incremental behavior is handled at the pipeline partition level.
 
-Coverage includes unit tests (parsers, normalizers, rules, config), integration
-tests (object storage, validation, weather joins), data-quality tests, and an
-end-to-end test over a small fixture dataset (no external downloads). CI runs
-lint, tests, and `dbt parse` on every push.
+## Known limitations & roadmap
 
-## Known limitations
-
-- Naive America/New_York timestamps (no UTC conversion) — documented and kept
-  consistent across trips and weather.
-- Raw taxi files are monthly; a month's file may contain a few trips from
-  adjacent days (late-arriving data) — captured when that month is processed.
-- PySpark path requires a Java runtime and is not exercised in the default CI.
-- In-memory Polars processing is bounded by available RAM (~3 GB per ~3.5M rows);
-  use the Spark path for larger scales.
+- Naive America/New_York timestamps (documented, consistent).
+- In-memory Polars is bounded by RAM; use the Spark path for larger scales.
+- The PySpark path requires a Java runtime and is not exercised in default CI.
+- Roadmap: Great Expectations suite, Terraform for cloud infra, dbt incremental models, and a Next.js dashboard.
 
 ## License
 
