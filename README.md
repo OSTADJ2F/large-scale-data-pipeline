@@ -101,8 +101,63 @@ Copy-Item .env.example .env
 # 3. Start infrastructure (PostgreSQL + MinIO)
 docker compose up -d
 
-# 4. Verify
+# 4. Verify configuration
 .\make.ps1 doctor
+```
+
+## Run the app
+
+After the quick start, run the pipeline for a small date range to populate the
+serving database (skip this if data is already loaded), then start everything:
+
+```powershell
+# Populate data (one month is enough to explore the dashboard)
+python -m pipeline run --start-date 2025-01-01 --end-date 2025-01-31
+```
+
+Then, with a single command:
+
+```powershell
+.\make.ps1 serve
+```
+
+`serve` starts PostgreSQL/MinIO (if needed), the FastAPI query API, and the
+Streamlit dashboard, waits until both are ready, and runs smoke checks.
+
+Open in a browser:
+
+| Service        | URL                             |
+| -------------- | ------------------------------- |
+| Dashboard      | http://localhost:8501           |
+| API docs       | http://localhost:8000/docs      |
+| API metrics    | http://localhost:8000/metrics   |
+
+Manage the running services:
+
+```powershell
+.\make.ps1 status    # show what is running
+.\make.ps1 smoke     # verify API, dashboard, and database
+.\make.ps1 stop      # stop the API and dashboard
+```
+
+Equivalent cross-platform commands (any OS):
+
+```bash
+python -m scripts.dev start     # start + smoke-test
+python -m scripts.dev status
+python -m scripts.dev smoke
+python -m scripts.dev stop
+```
+
+Service logs are written to `logs/api.log` and `logs/dashboard.log`.
+
+### Manual start (two terminals)
+
+```powershell
+# terminal 1
+.venv\Scripts\python -m uvicorn api.app:app --reload
+# terminal 2
+.venv\Scripts\python -m streamlit run dashboard/app.py
 ```
 
 ## Pipeline commands
