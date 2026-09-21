@@ -1,0 +1,6 @@
+# Static defaults overridden by environment variables at runtime.
+# Keep secrets out of this file.
+environment: local
+log_level: INFO
+workers: 4
+storage_backend: local

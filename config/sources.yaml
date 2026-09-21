@@ -1,0 +1,21 @@
+# Data-source manifest.
+# Each source declares its format, URL template, and partitioning scheme.
+# URL templates support {year}, {month:02d}, {start_date}, {end_date} placeholders.
+sources:
+  taxi_trips:
+    format: parquet
+    url: https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet
+    partition_column: pickup_date
+    description: NYC TLC Yellow Taxi trip records (monthly Parquet)
+
+  taxi_zones:
+    format: csv
+    url: https://d37ci6vzurychx.cloudfront.net/misc/taxi+_zone_lookup.csv
+    partition_column: null
+    description: Taxi zone ID -> borough/zone lookup table
+
+  weather:
+    format: json
+    url: https://archive-api.open-meteo.com/v1/archive
+    partition_column: date
+    description: Open-Meteo historical hourly weather for NYC

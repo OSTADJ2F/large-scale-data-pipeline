@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taxi-analytics-pipeline"
+version = "0.1.0"
+description = "Large-scale transportation analytics pipeline: taxi trips enriched with weather data."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Amir Tarbiyat" }]
+dependencies = [
+    "polars>=0.20,<1.0",
+    "pyarrow>=14.0",
+    "duckdb>=0.10",
+    "pandera[polars]>=0.19",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "tenacity>=8.2",
+    "typer>=0.12",
+    "structlog>=24.1",
+    "boto3>=1.34",
+    "psycopg[binary]>=3.1",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "streamlit>=1.33",
+    "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.8",
+]
+spark = [
+    "pyspark>=3.5,<4.0",
+]
+
+[project.scripts]
+pipeline = "pipeline.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["pipeline", "tests", "api", "dashboard"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "N", "W"]
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q --basetemp=.pytest-tmp"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["pipeline"]
+omit = ["pipeline/cli.py"]
