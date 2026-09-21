@@ -42,6 +42,7 @@ models:
           - accepted_values:
               arguments:
                 values:
+                  - not_recorded
                   - credit_card
                   - cash
                   - no_charge

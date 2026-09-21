@@ -13,6 +13,7 @@ import polars as pl
 TIMEZONE = "America/New_York"
 
 PAYMENT_TYPE_LABELS: dict[int, str] = {
+    0: "not_recorded",
     1: "credit_card",
     2: "cash",
     3: "no_charge",

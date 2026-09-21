@@ -7,7 +7,9 @@ ingestion manifest, and makes re-runs idempotent.
 from __future__ import annotations
 
 import tempfile
+import threading
 from calendar import monthrange
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -59,6 +61,15 @@ class Ingestor:
         self.storage = get_storage(self.settings)
         self.meta = MetadataStore(self.settings.data_dir / "pipeline_meta.duckdb")
         self.sources = load_sources()
+        self._lock = threading.Lock()
+
+    def _get_ingestion(self, source: str, partition: str | None):
+        with self._lock:
+            return self.meta.get_ingestion(source, partition)
+
+    def _record_ingestion(self, record: dict) -> None:
+        with self._lock:
+            self.meta.record_ingestion(record)
 
     def _key(self, source: str, partition: str | None) -> str:
         if source == "taxi_trips":
@@ -72,7 +83,7 @@ class Ingestor:
         raise ValueError(f"Unknown source: {source}")
 
     def _already_ingested(self, source: str, partition: str | None, key: str) -> bool:
-        rec = self.meta.get_ingestion(source, partition)
+        rec = self._get_ingestion(source, partition)
         return bool(rec and rec["status"] == "success" and self.storage.exists(key))
 
     def _record(
@@ -98,7 +109,7 @@ class Ingestor:
         }
         if status == "success":
             record["row_count"] = row_count(path, self.sources[source]["format"])
-        self.meta.record_ingestion(record)
+        self._record_ingestion(record)
         if error:
             log.error("ingestion_failed", source=source, partition=partition, error=error)
         return record
@@ -106,26 +117,33 @@ class Ingestor:
     def _store(self, key: str, tmp: Path) -> None:
         self.storage.write_file(key, tmp)
 
-    # --- source handlers ----------------------------------------------------
+    # --- task construction --------------------------------------------------
 
-    def _ingest_taxi_trips(self, start: date, end: date) -> list[IngestionResult]:
-        template = self.sources["taxi_trips"]["url"]
-        results: list[IngestionResult] = []
+    def _build_tasks(self, start: date, end: date) -> list[dict]:
+        tasks: list[dict] = []
+
+        taxi_template = self.sources["taxi_trips"]["url"]
         for y, m in iter_months(start, end):
             partition = f"{y}-{m:02d}"
-            url = template.format(year=y, month=m)
-            key = self._key("taxi_trips", partition)
-            results.append(self._download_one("taxi_trips", partition, url, key))
-        return results
+            tasks.append(
+                {
+                    "source": "taxi_trips",
+                    "partition": partition,
+                    "url": taxi_template.format(year=y, month=m),
+                    "key": self._key("taxi_trips", partition),
+                }
+            )
 
-    def _ingest_taxi_zones(self) -> list[IngestionResult]:
-        url = self.sources["taxi_zones"]["url"]
-        key = self._key("taxi_zones", None)
-        return [self._download_one("taxi_zones", None, url, key)]
+        tasks.append(
+            {
+                "source": "taxi_zones",
+                "partition": None,
+                "url": self.sources["taxi_zones"]["url"],
+                "key": self._key("taxi_zones", None),
+            }
+        )
 
-    def _ingest_weather(self, start: date, end: date) -> list[IngestionResult]:
-        base = self.sources["weather"]["url"]
-        results: list[IngestionResult] = []
+        weather_base = self.sources["weather"]["url"]
         for y, m in iter_months(start, end):
             partition = f"{y}-{m:02d}"
             first = date(y, m, 1)
@@ -138,10 +156,15 @@ class Ingestor:
                 "hourly": WEATHER_HOURLY,
                 "timezone": "America/New_York",
             }
-            url = f"{base}?{urlencode(params)}"
-            key = self._key("weather", partition)
-            results.append(self._download_one("weather", partition, url, key))
-        return results
+            tasks.append(
+                {
+                    "source": "weather",
+                    "partition": partition,
+                    "url": f"{weather_base}?{urlencode(params)}",
+                    "key": self._key("weather", partition),
+                }
+            )
+        return tasks
 
     # --- generic single-file download --------------------------------------
 
@@ -150,7 +173,7 @@ class Ingestor:
     ) -> IngestionResult:
         if self._already_ingested(source, partition, key):
             log.info("already_ingested", source=source, partition=partition)
-            rec = self.meta.get_ingestion(source, partition)
+            rec = self._get_ingestion(source, partition)
             return IngestionResult(
                 source_name=source,
                 partition_date=partition,
@@ -205,15 +228,21 @@ class Ingestor:
             "row_count": None,
             "status": "failed",
         }
-        self.meta.record_ingestion(record)
+        self._record_ingestion(record)
         log.error("ingestion_failed", source=source, partition=partition, error=error)
         return record
 
     def run(self, start: date, end: date) -> list[IngestionResult]:
+        tasks = self._build_tasks(start, end)
         results: list[IngestionResult] = []
-        results += self._ingest_taxi_trips(start, end)
-        results += self._ingest_taxi_zones()
-        results += self._ingest_weather(start, end)
+        workers = max(1, self.settings.workers)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(self._download_one, t["source"], t["partition"], t["url"], t["key"]): t
+                for t in tasks
+            }
+            for fut in as_completed(futures):
+                results.append(fut.result())
         self.meta.close()
         return results
 

@@ -16,7 +16,10 @@ MAX_LOCATION_ID = 265
 MAX_PASSENGER_COUNT = 9
 MAX_TRIP_DISTANCE_MILES = 200.0
 MAX_TRIP_DURATION_SECONDS = 24 * 60 * 60
-VALID_PAYMENT_TYPES = {1, 2, 3, 4, 5, 6}
+# TLC payment_type codes. 0 appears in newer TLC feeds for records where no
+# payment was recorded (correlated with null passenger_count); it is treated as
+# a valid "not_recorded" code rather than a correctness violation.
+VALID_PAYMENT_TYPES = {0, 1, 2, 3, 4, 5, 6}
 
 
 @dataclass(frozen=True)
