@@ -185,6 +185,19 @@ time. Weather is joined by **nearest hour** (floor-to-hour on pickup time).
 
 Validation reports are saved as JSON artifacts under `data/validated/trips/reports/`.
 
+### Findings on real data (Jan–Apr 2025)
+
+The pipeline surfaced real data-quality issues in the TLC feed:
+
+- **`payment_type=0`** (up to 806k rows/month) — a non-standard code correlated
+  with null `passenger_count`; treated as a valid `not_recorded` value rather
+  than a correctness failure.
+- **Negative fares** (~5% of rows) — genuine TLC adjustment/refund records,
+  flagged as invalid and excluded from revenue marts.
+- **Soft-null `passenger_count`** — defaulted to 0 during normalization.
+- **Late-arriving trips** — monthly files contain a few trips from adjacent
+  dates (e.g. `pickup_date=2024-12-31` inside the January file).
+
 ## Performance
 
 Benchmarked on a single month (3.48M rows, 56 MB Parquet) on a local machine:
