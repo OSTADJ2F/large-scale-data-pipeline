@@ -36,7 +36,6 @@ secrets/
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
-dbt/profiles.yml
 logs/
 
 # Airflow

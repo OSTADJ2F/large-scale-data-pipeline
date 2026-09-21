@@ -125,5 +125,17 @@ def quality() -> None:
     run_quality()
 
 
+@app.command()
+def load() -> None:
+    """Load analytical marts into the PostgreSQL serving database."""
+    from pipeline.serving.loader import ensure_schema, load_marts
+
+    ensure_schema()
+    counts = load_marts()
+    typer.echo("Loaded marts into PostgreSQL:")
+    for mart, rows in counts.items():
+        typer.echo(f"  {mart}: {rows} rows")
+
+
 if __name__ == "__main__":
     app()

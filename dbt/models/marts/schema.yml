@@ -1,0 +1,93 @@
+version: 2
+
+models:
+  - name: dim_zones
+    description: Taxi-zone dimension (id, borough, zone name, service zone).
+    columns:
+      - name: location_id
+        description: TLC taxi-zone id.
+        data_tests:
+          - unique
+          - not_null
+      - name: borough
+        description: NYC borough.
+      - name: zone
+        description: Human-readable zone name.
+        data_tests:
+          - not_null
+
+  - name: fct_trips
+    description: Fact table of enriched trips, one row per trip.
+    columns:
+      - name: pickup_datetime
+        data_tests:
+          - not_null
+      - name: dropoff_datetime
+        data_tests:
+          - not_null
+      - name: pickup_location_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_zones')
+                field: location_id
+      - name: dropoff_location_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_zones')
+                field: location_id
+      - name: payment_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - credit_card
+                  - cash
+                  - no_charge
+                  - dispute
+                  - unknown
+                  - voided_trip
+
+  - name: daily_demand
+    description: Daily demand by pickup zone (trips, duration, distance, revenue).
+    columns:
+      - name: date
+        data_tests:
+          - not_null
+      - name: pickup_location_id
+        data_tests:
+          - not_null
+      - name: trip_count
+        data_tests:
+          - not_null
+
+  - name: hourly_demand
+    description: Hourly demand (trips, duration, fare).
+    columns:
+      - name: date
+        data_tests:
+          - not_null
+      - name: hour
+        data_tests:
+          - not_null
+
+  - name: route_performance
+    description: Route performance between pickup/dropoff zones.
+    columns:
+      - name: pickup_location_id
+        data_tests:
+          - not_null
+      - name: dropoff_location_id
+        data_tests:
+          - not_null
+
+  - name: weather_impact
+    description: Demand and duration by weather condition and precipitation.
+    columns:
+      - name: date
+        data_tests:
+          - not_null
+      - name: weather_condition
+        data_tests:
+          - not_null

@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: stg_trips
+    description: >
+      Cleaned trip records read directly from curated Parquet. One row per trip.
+    columns:
+      - name: pickup_datetime
+        description: Trip pickup timestamp (naive America/New_York).
+      - name: dropoff_datetime
+        description: Trip dropoff timestamp (naive America/New_York).
+      - name: pickup_date
+        description: Local date of pickup.
+      - name: pickup_location_id
+        description: TLC taxi-zone id of the pickup location.
+      - name: dropoff_location_id
+        description: TLC taxi-zone id of the dropoff location.
+      - name: passenger_count
+        description: Number of passengers (nulls defaulted to 0).
+      - name: trip_distance
+        description: Trip distance in miles.
+      - name: trip_duration_seconds
+        description: Elapsed trip time in seconds.
+      - name: fare_amount
+        description: Base fare amount in dollars.
+      - name: tip_amount
+        description: Tip amount in dollars.
+      - name: total_charge
+        description: Sum of all monetary charges (fare + tip + fees + surcharges).
+      - name: payment_type
+        description: Payment method label (credit_card, cash, ...).
+      - name: is_airport_trip
+        description: True when pickup or dropoff is an airport zone.
+      - name: temperature
+        description: Hourly temperature in Celsius.
+      - name: precipitation
+        description: Hourly precipitation in mm.
+      - name: wind_speed
+        description: Hourly wind speed in km/h.
+      - name: weather_condition
+        description: WMO weather condition label.
+      - name: weather_joined
+        description: True when the trip was matched to an hourly weather record.
