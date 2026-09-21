@@ -137,5 +137,13 @@ def load() -> None:
         typer.echo(f"  {mart}: {rows} rows")
 
 
+@app.command()
+def metrics() -> None:
+    """Render pipeline metrics in Prometheus text format."""
+    from pipeline.metrics import run_metrics
+
+    run_metrics()
+
+
 if __name__ == "__main__":
     app()

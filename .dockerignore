@@ -1,0 +1,15 @@
+# Airflow image build context excludes
+.venv/
+data/
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+.git/
+.github/
+*.pyc
+__pycache__/
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+airflow/logs/

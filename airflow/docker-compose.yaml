@@ -1,0 +1,75 @@
+# Standalone Airflow orchestration (LocalExecutor).
+# Start the data services first: `docker compose up -d` from the repo root,
+# then: `docker compose -f airflow/docker-compose.yaml up -d`.
+#
+# The Airflow containers reach the data PostgreSQL/MinIO exposed on the Docker
+# host via host.docker.internal.
+
+x-airflow-common: &airflow-common
+  build:
+    context: ..
+    dockerfile: airflow/Dockerfile
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__WEBSERVER__SECRET_KEY: dev-only-secret
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    # Data-plane connections (main docker-compose services on the host).
+    POSTGRES_HOST: host.docker.internal
+    POSTGRES_PORT: "5432"
+    POSTGRES_DB: taxi
+    POSTGRES_USER: taxi
+    POSTGRES_PASSWORD: taxi
+    MINIO_ENDPOINT: host.docker.internal:9000
+    MINIO_ACCESS_KEY: minioadmin
+    MINIO_SECRET_KEY: minioadmin
+    DATA_DIR: /opt/pipeline/data
+    DUCKDB_PATH: /opt/pipeline/data/analytics.duckdb
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ../data:/opt/pipeline/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+
+  airflow-init:
+    <<: *airflow-common
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create --username admin --password admin
+               --firstname Admin --lastname User --role Admin --email admin@example.com"
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+volumes:
+  airflow-postgres-data:
