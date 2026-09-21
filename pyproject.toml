@@ -38,6 +38,7 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.8",
     "psutil>=5.9",
+    "httpx>=0.27",
 ]
 spark = [
     "pyspark>=3.5,<4.0",
