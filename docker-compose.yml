@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pipeline-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-taxi}
+      POSTGRES_USER: ${POSTGRES_USER:-taxi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taxi}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-taxi} -d ${POSTGRES_DB:-taxi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: pipeline-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Creates the default "raw" bucket on startup.
+  minio-init:
+    image: minio/mc:latest
+    container_name: pipeline-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin} &&
+      mc mb --ignore-existing local/${MINIO_BUCKET:-raw}
+      "
+    restart: "no"
+
+volumes:
+  postgres-data:
+  minio-data:

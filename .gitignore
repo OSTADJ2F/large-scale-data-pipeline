@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.uv/
+.python-version
+*.egg
+
+# Data (never commit datasets or generated artifacts)
+data/
+*.parquet
+*.csv
+*.jsonl
+*.duckdb
+*.db
+*.sqlite
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials/
+secrets/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/profiles.yml
+logs/
+
+# Airflow
+airflow/logs/
+airflow/plugins/
+airflow/config/
+airflow/dags/**/__pycache__/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+.mounts/
+postgres-data/
+minio-data/
