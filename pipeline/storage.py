@@ -103,7 +103,9 @@ class Storage:
         base = self._local_path(prefix)
         if not base.exists():
             return []
-        return [p.relative_to(self.settings.data_dir).as_posix() for p in base.rglob("*") if p.is_file()]
+        return [
+            p.relative_to(self.settings.data_dir).as_posix() for p in base.rglob("*") if p.is_file()
+        ]
 
     def checksum(self, key: str, algorithm: str = "sha256") -> str:
         if self._s3 is not None:
