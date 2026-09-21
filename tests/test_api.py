@@ -41,6 +41,20 @@ def test_demand_filter_by_location():
 
 
 @requires_postgres
+def test_demand_without_optional_filters():
+    resp = client.get("/metrics/demand")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+@requires_postgres
+def test_weather_impact_without_condition():
+    resp = client.get("/metrics/weather-impact?start_date=2025-01-01&end_date=2025-01-02")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+@requires_postgres
 def test_pipeline_runs_endpoint():
     resp = client.get("/pipeline/runs?limit=3")
     assert resp.status_code == 200

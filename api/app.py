@@ -57,9 +57,10 @@ def demand(
         SELECT date, pickup_location_id, trip_count, average_trip_duration,
                total_distance, total_revenue, average_fare
         FROM marts.daily_demand
-        WHERE (:start_date IS NULL OR date >= :start_date)
-          AND (:end_date IS NULL OR date <= :end_date)
-          AND (:location_id IS NULL OR pickup_location_id = :location_id)
+        WHERE (CAST(:start_date AS date) IS NULL OR date >= CAST(:start_date AS date))
+          AND (CAST(:end_date AS date) IS NULL OR date <= CAST(:end_date AS date))
+          AND (CAST(:location_id AS integer) IS NULL
+               OR pickup_location_id = CAST(:location_id AS integer))
         ORDER BY date, pickup_location_id
     """
     return _query(sql, {"start_date": start_date, "end_date": end_date, "location_id": location_id})
@@ -73,8 +74,8 @@ def revenue(
     sql = """
         SELECT date, SUM(total_revenue) AS total_revenue, SUM(trip_count) AS trip_count
         FROM marts.daily_demand
-        WHERE (:start_date IS NULL OR date >= :start_date)
-          AND (:end_date IS NULL OR date <= :end_date)
+        WHERE (CAST(:start_date AS date) IS NULL OR date >= CAST(:start_date AS date))
+          AND (CAST(:end_date AS date) IS NULL OR date <= CAST(:end_date AS date))
         GROUP BY date ORDER BY date
     """
     return _query(sql, {"start_date": start_date, "end_date": end_date})
@@ -102,9 +103,10 @@ def weather_impact(
         SELECT date, weather_condition, precipitation, trip_count,
                average_duration, average_fare
         FROM marts.weather_impact
-        WHERE (:start_date IS NULL OR date >= :start_date)
-          AND (:end_date IS NULL OR date <= :end_date)
-          AND (:weather_condition IS NULL OR weather_condition = :weather_condition)
+        WHERE (CAST(:start_date AS date) IS NULL OR date >= CAST(:start_date AS date))
+          AND (CAST(:end_date AS date) IS NULL OR date <= CAST(:end_date AS date))
+          AND (CAST(:weather_condition AS text) IS NULL
+               OR weather_condition = CAST(:weather_condition AS text))
         ORDER BY date, weather_condition, precipitation
     """
     return _query(

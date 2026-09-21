@@ -6,6 +6,8 @@ pipeline run status). Run with `streamlit run dashboard/app.py`.
 
 from __future__ import annotations
 
+from datetime import date
+
 import duckdb
 import pandas as pd
 import streamlit as st
@@ -52,10 +54,10 @@ def payment_breakdown() -> pd.DataFrame:
         con.close()
 
 
-def _date_filter(start: pd.Timestamp, end: pd.Timestamp) -> tuple[str, dict]:
+def _date_filter(start: date, end: date) -> tuple[str, dict]:
     return (
         "date >= :start_date AND date <= :end_date",
-        {"start_date": start.date(), "end_date": end.date()},
+        {"start_date": pd.Timestamp(start).date(), "end_date": pd.Timestamp(end).date()},
     )
 
 
@@ -99,7 +101,7 @@ daily = query(
     f"WHERE {date_clause} GROUP BY date ORDER BY date",
     date_params,
 )
-st.line_chart(daily.set_index("date"), use_container_width=True)
+st.line_chart(daily.set_index("date"), width="stretch")
 
 left, right = st.columns(2)
 with left:
@@ -107,7 +109,7 @@ with left:
     hourly = query(
         "SELECT hour, SUM(trip_count) AS trips FROM marts.hourly_demand GROUP BY hour ORDER BY hour"
     )
-    st.bar_chart(hourly.set_index("hour"), use_container_width=True)
+    st.bar_chart(hourly.set_index("hour"), width="stretch")
 
 with right:
     st.subheader("Top pickup zones")
@@ -117,7 +119,7 @@ with right:
         f"WHERE {date_clause} GROUP BY z.zone ORDER BY trips DESC LIMIT 10",
         date_params,
     )
-    st.bar_chart(zones.set_index("zone"), use_container_width=True)
+    st.bar_chart(zones.set_index("zone"), width="stretch")
 
 st.subheader("Revenue trend")
 revenue = query(
@@ -125,7 +127,7 @@ revenue = query(
     f"WHERE {date_clause} GROUP BY date ORDER BY date",
     date_params,
 )
-st.line_chart(revenue.set_index("date"), use_container_width=True)
+st.line_chart(revenue.set_index("date"), width="stretch")
 
 left, right = st.columns(2)
 with left:
@@ -137,7 +139,7 @@ with left:
         "JOIN marts.dim_zones doz ON r.dropoff_location_id = doz.location_id "
         "ORDER BY r.total_revenue DESC LIMIT 10"
     )
-    st.dataframe(routes, use_container_width=True)
+    st.dataframe(routes, width="stretch")
 
 with right:
     st.subheader("Weather impact")
@@ -145,7 +147,7 @@ with right:
         "SELECT weather_condition, SUM(trip_count) AS trips, AVG(average_duration) AS avg_duration "
         "FROM marts.weather_impact GROUP BY weather_condition ORDER BY trips DESC"
     )
-    st.dataframe(weather, use_container_width=True)
+    st.dataframe(weather, width="stretch")
 
 st.subheader("Payment type breakdown")
-st.bar_chart(payment_breakdown().set_index("payment_type"), use_container_width=True)
+st.bar_chart(payment_breakdown().set_index("payment_type"), width="stretch")
