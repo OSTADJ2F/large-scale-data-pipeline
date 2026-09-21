@@ -145,5 +145,13 @@ def metrics() -> None:
     run_metrics()
 
 
+@app.command()
+def alerts() -> None:
+    """Run operational alert checks against pipeline metadata."""
+    from pipeline.observability.alerts import run_alerts
+
+    run_alerts()
+
+
 if __name__ == "__main__":
     app()

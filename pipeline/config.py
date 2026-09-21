@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     quality_max_invalid_ratio: float = 0.20
     quality_max_null_ratio: float = 0.10
 
+    alert_row_change_ratio: float = 2.0
+    alert_max_duration_seconds: float = 3600.0
+
     taxi_trips_url: str = (
         "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet"
     )

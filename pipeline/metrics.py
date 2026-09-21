@@ -1,36 +1,72 @@
-"""Pipeline metrics reporting.
+"""Pipeline metrics exposed in Prometheus text format.
 
-Populates a Prometheus-compatible metrics registry and renders it for the
-``pipeline metrics`` command. Metrics are expanded in the observability layer.
+Metrics are computed from the pipeline metadata store on every scrape and set
+as gauges (absolute values), so repeated scrapes are idempotent.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, generate_latest
+from prometheus_client import CollectorRegistry, Gauge, Histogram, generate_latest
 
 from pipeline.config import get_settings
 from pipeline.metadata import MetadataStore
 
 registry = CollectorRegistry()
 
-ROWS_INGESTED = Counter(
-    "pipeline_rows_ingested_total", "Rows ingested", ["source"], registry=registry
+ROWS_INGESTED = Gauge(
+    "pipeline_rows_ingested_total",
+    "Rows ingested per source",
+    ["source"],
+    registry=registry,
 )
-ROWS_REJECTED = Counter(
-    "pipeline_rows_rejected_total", "Rows rejected during validation", registry=registry
+ROWS_REJECTED = Gauge(
+    "pipeline_rows_rejected_total",
+    "Rows rejected during validation (latest successful run)",
+    registry=registry,
 )
-ROWS_TRANSFORMED = Counter(
-    "pipeline_rows_transformed_total", "Rows normalized into staging", registry=registry
+ROWS_TRANSFORMED = Gauge(
+    "pipeline_rows_transformed_total",
+    "Rows normalized into staging (latest successful run)",
+    registry=registry,
 )
 PARTITION_STATUS = Gauge(
     "pipeline_last_partition_status",
     "Status of the most recent partition run (1=success, 0=failed)",
     registry=registry,
 )
+PIPELINE_DURATION = Gauge(
+    "pipeline_run_duration_seconds",
+    "Duration of the most recent pipeline run in seconds",
+    registry=registry,
+)
+JOB_FAILURES = Gauge(
+    "pipeline_job_failures_total",
+    "Number of failed pipeline runs recorded",
+    registry=registry,
+)
+LAST_SUCCESS_TIMESTAMP = Gauge(
+    "pipeline_last_success_timestamp_seconds",
+    "Unix timestamp of the last successful run",
+    registry=registry,
+)
+CURRENT_PARTITION = Gauge(
+    "pipeline_current_partition",
+    "The partition of the most recent run (1 if present)",
+    ["partition"],
+    registry=registry,
+)
 STORAGE_BYTES = Gauge(
-    "pipeline_storage_bytes", "Bytes stored in the data directory", registry=registry
+    "pipeline_storage_bytes",
+    "Bytes stored in the data directory",
+    registry=registry,
+)
+REQUEST_LATENCY = Histogram(
+    "pipeline_http_request_duration_seconds",
+    "API request latency in seconds",
+    ["endpoint"],
+    registry=registry,
 )
 
 
@@ -44,17 +80,31 @@ def collect_metrics() -> None:
     settings = get_settings()
     meta = MetadataStore(settings.data_dir / "pipeline_meta.duckdb")
     try:
-        ingestions = meta.list_ingestions()
-        for rec in ingestions:
+        per_source: dict[str, int] = {}
+        for rec in meta.list_ingestions():
             if rec["status"] == "success":
-                ROWS_INGESTED.labels(rec["source_name"]).inc(rec["row_count"] or 0)
+                per_source[rec["source_name"]] = per_source.get(rec["source_name"], 0) + (
+                    rec["row_count"] or 0
+                )
+        for source, n in per_source.items():
+            ROWS_INGESTED.labels(source).set(n)
 
-        latest = meta.list_runs()
-        if latest:
-            PARTITION_STATUS.set(1 if latest[0]["status"] == "success" else 0)
-            if latest[0]["status"] == "success":
-                ROWS_TRANSFORMED.inc(latest[0]["output_rows"] or 0)
-                ROWS_REJECTED.inc((latest[0]["input_rows"] or 0) - (latest[0]["output_rows"] or 0))
+        runs = meta.list_runs()
+        JOB_FAILURES.set(sum(1 for r in runs if r["status"] == "failed"))
+
+        if runs:
+            latest = runs[0]
+            PARTITION_STATUS.set(1 if latest["status"] == "success" else 0)
+            CURRENT_PARTITION.labels(latest["partition_date"]).set(1)
+            started = latest.get("started_at")
+            completed = latest.get("completed_at")
+            if started and completed:
+                PIPELINE_DURATION.set((completed - started).total_seconds())
+            if latest["status"] == "success":
+                ROWS_TRANSFORMED.set(latest["output_rows"] or 0)
+                ROWS_REJECTED.set((latest["input_rows"] or 0) - (latest["output_rows"] or 0))
+                if completed:
+                    LAST_SUCCESS_TIMESTAMP.set(completed.timestamp())
     finally:
         meta.close()
 

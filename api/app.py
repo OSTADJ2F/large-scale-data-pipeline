@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import time
 from datetime import date
 from typing import Any
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from pipeline.config import get_settings, postgres_dsn
 from pipeline.metadata import MetadataStore
-from pipeline.metrics import render_metrics
+from pipeline.metrics import REQUEST_LATENCY, render_metrics
 from prometheus_client import CONTENT_TYPE_LATEST
 from sqlalchemy import create_engine, text
 
 app = FastAPI(title="Taxi Analytics API", version="0.1.0")
 
 _engine = None
+
+
+@app.middleware("http")
+async def latency_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    REQUEST_LATENCY.labels(request.url.path).observe(time.perf_counter() - start)
+    return response
 
 
 def engine():
