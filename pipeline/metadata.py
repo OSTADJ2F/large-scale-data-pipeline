@@ -158,6 +158,30 @@ class MetadataStore:
             ],
         )
 
+    def get_latest_run(self, pipeline_name: str, partition_date: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            """
+            SELECT * FROM pipeline_runs
+            WHERE pipeline_name = ? AND partition_date = ?
+            ORDER BY started_at DESC LIMIT 1
+            """,
+            [pipeline_name, partition_date],
+        ).fetchone()
+        if row is None:
+            return None
+        cols = [
+            "run_id",
+            "pipeline_name",
+            "partition_date",
+            "status",
+            "started_at",
+            "completed_at",
+            "input_rows",
+            "output_rows",
+            "error_message",
+        ]
+        return dict(zip(cols, row, strict=True))
+
     def list_runs(self, pipeline_name: str | None = None) -> list[dict[str, Any]]:
         if pipeline_name:
             rows = self._conn.execute(
